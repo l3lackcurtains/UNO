@@ -1,149 +1,156 @@
-# Copyright (c) 2025 Bytedance Ltd. and/or its affiliates. All rights reserved.
+from flask import Flask, request, jsonify, send_file
+from io import BytesIO
+import time
+from generator import ImageGenerator
+import threading
+from queue import Queue
+import concurrent.futures
 
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+app = Flask(__name__)
+request_queue = Queue()
+thread_lock = threading.Lock()
 
-#     http://www.apache.org/licenses/LICENSE-2.0
+try:
+    generator = ImageGenerator()
+except RuntimeError as e:
+    print(f"Failed to initialize ImageGenerator: {e}")
+    generator = None
 
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Create a thread pool executor
+executor = concurrent.futures.ThreadPoolExecutor(max_workers=3)
 
-import dataclasses
-import json
-from pathlib import Path
+def make_response(status="ok", data=None, error=None, http_code=200):
+    response = {
+        "status": status,
+        "timestamp": time.time()
+    }
+    if data is not None:
+        response["data"] = data
+    if error is not None:
+        response["error"] = error
+    return jsonify(response), http_code
 
-import gradio as gr
-import torch
+def generate_image_task(prompt, height, width, model):
+    with thread_lock:
+        return generator.generate(prompt, height, width, model)
 
-from uno.flux.pipeline import UNOPipeline
+@app.route('/generate', methods=['POST'])
+def generate_image_endpoint():
+    if generator is None:
+        return make_response(
+            status="error",
+            error="GPU with CUDA support is required but not available",
+            http_code=503
+        )
 
-
-def get_examples(examples_dir: str = "assets/examples") -> list:
-    examples = Path(examples_dir)
-    ans = []
-    for example in examples.iterdir():
-        if not example.is_dir():
-            continue
-        with open(example / "config.json") as f:
-            example_dict = json.load(f)
-  
+    try:
+        start_time = time.time()
+        print("Processing generate_image request")
         
-        example_list = []
-
-        example_list.append(example_dict["useage"])  # case for
-        example_list.append(example_dict["prompt"])  # prompt
-
-        for key in ["image_ref1", "image_ref2", "image_ref3", "image_ref4"]:
-            if key in example_dict:
-                example_list.append(str(example / example_dict[key]))
-            else:
-                example_list.append(None)
-
-        example_list.append(example_dict["seed"])
-
-        ans.append(example_list)
-    return ans
-
-
-def create_demo(
-    model_type: str,
-    device: str = "cuda" if torch.cuda.is_available() else "cpu",
-    offload: bool = False,
-):
-    pipeline = UNOPipeline(model_type, device, offload, only_lora=True, lora_rank=512)
-
-    badges_text = r"""
-    <div style="text-align: center; display: flex; justify-content: left; gap: 5px;">
-    <a href="https://github.com/bytedance/UNO"><img alt="Build" src="https://img.shields.io/github/stars/bytedance/UNO"></a> 
-    <a href="https://bytedance.github.io/UNO/"><img alt="Build" src="https://img.shields.io/badge/Project%20Page-UNO-yellow"></a> 
-    <a href="https://arxiv.org/abs/2504.02160"><img alt="Build" src="https://img.shields.io/badge/arXiv%20paper-UNO-b31b1b.svg"></a>
-    <a href="https://huggingface.co/bytedance-research/UNO"><img src="https://img.shields.io/static/v1?label=%F0%9F%A4%97%20Hugging%20Face&message=Model&color=orange"></a>
-    <a href="https://huggingface.co/spaces/bytedance-research/UNO-FLUX"><img src="https://img.shields.io/static/v1?label=%F0%9F%A4%97%20Hugging%20Face&message=demo&color=orange"></a>
-    </div>
-    """.strip()
-
-    with gr.Blocks() as demo:
-        gr.Markdown(f"# UNO by UNO team")
-        gr.Markdown(badges_text)
-        with gr.Row():
-            with gr.Column():
-                prompt = gr.Textbox(label="Prompt", value="handsome woman in the city")
-                with gr.Row():
-                    image_prompt1 = gr.Image(label="Ref Img1", visible=True, interactive=True, type="pil")
-                    image_prompt2 = gr.Image(label="Ref Img2", visible=True, interactive=True, type="pil")
-                    image_prompt3 = gr.Image(label="Ref Img3", visible=True, interactive=True, type="pil")
-                    image_prompt4 = gr.Image(label="Ref img4", visible=True, interactive=True, type="pil")
-
-                with gr.Row():
-                    with gr.Column():
-                        width = gr.Slider(512, 2048, 512, step=16, label="Gneration Width")
-                        height = gr.Slider(512, 2048, 512, step=16, label="Gneration Height")
-                    with gr.Column():
-                        gr.Markdown("📌 The model trained on 512x512 resolution.\n")
-                        gr.Markdown(
-                            "The size closer to 512 is more stable,"
-                            " and the higher size gives a better visual effect but is less stable"
-                        )
-
-                with gr.Accordion("Advanced Options", open=False):
-                    with gr.Row():
-                        num_steps = gr.Slider(1, 50, 25, step=1, label="Number of steps")
-                        guidance = gr.Slider(1.0, 5.0, 4.0, step=0.1, label="Guidance", interactive=True)
-                        seed = gr.Number(-1, label="Seed (-1 for random)")
-
-                generate_btn = gr.Button("Generate")
-
-            with gr.Column():
-                output_image = gr.Image(label="Generated Image")
-                download_btn = gr.File(label="Download full-resolution", type="filepath", interactive=False)
-
-
-            inputs = [
-                prompt, width, height, guidance, num_steps,
-                seed, image_prompt1, image_prompt2, image_prompt3, image_prompt4
-            ]
-            generate_btn.click(
-                fn=pipeline.gradio_generate,
-                inputs=inputs,
-                outputs=[output_image, download_btn],
+        data = request.get_json()
+        prompt = data.get('prompt')
+        height = data.get('height', 512)
+        width = data.get('width', 512)
+        model = data.get('model', 'flux-dev')
+        
+        if not prompt:
+            return make_response(
+                status="error",
+                error="'prompt' is required",
+                http_code=400
             )
         
-        example_text = gr.Text("", visible=False, label="Case For:")
-        examples = get_examples("./assets/examples")
-
-        gr.Examples(
-            examples=examples,
-            inputs=[
-                example_text, prompt,
-                image_prompt1, image_prompt2, image_prompt3, image_prompt4,
-                seed, output_image
-            ],
+        generation_start = time.time()
+        
+        # Submit the task to the thread pool
+        future = executor.submit(generate_image_task, prompt, height, width, model)
+        image = future.result()  # Wait for the result
+        
+        generation_time = time.time() - generation_start
+        
+        img_io = BytesIO()
+        image.save(img_io, 'PNG')
+        img_io.seek(0)
+        
+        print(f"Image generation completed in {generation_time:.2f} seconds")
+        print(f"Total request processing time: {time.time() - start_time:.2f} seconds")
+        
+        response = send_file(img_io, mimetype='image/png')
+        response.headers['X-Generation-Time'] = f"{generation_time:.2f}"
+        return response
+        
+    except Exception as e:
+        print(f"Error in generate_image: {e}")
+        return make_response(
+            status="error",
+            error=str(e),
+            http_code=500
         )
 
-    return demo
-
-if __name__ == "__main__":
-    from typing import Literal
-
-    from transformers import HfArgumentParser
-
-    @dataclasses.dataclass
-    class AppArgs:
-        name: Literal["flux-dev", "flux-dev-fp8", "flux-schnell"] = "flux-dev"
-        device: Literal["cuda", "cpu"] = "cuda" if torch.cuda.is_available() else "cpu"
-        offload: bool = dataclasses.field(
-            default=False,
-            metadata={"help": "If True, sequantial offload the models(ae, dit, text encoder) to CPU if not used."}
+@app.route('/health', methods=['GET'])
+def health():
+    """Health check endpoint"""
+    try:
+        return make_response(status="ok")
+    except Exception as e:
+        print(f"Health check failed: {e}")
+        return make_response(
+            status="error",
+            error=str(e),
+            http_code=500
         )
-        port: int = 7860
 
-    parser = HfArgumentParser([AppArgs])
-    args_tuple = parser.parse_args_into_dataclasses() # type: tuple[AppArgs]
-    args = args_tuple[0]
+@app.route('/system-info', methods=['GET'])
+def system_info():
+    """Endpoint to check system configuration including GPU status"""
+    if generator is None:
+        return make_response(
+            status="error",
+            error="GPU with CUDA support is required but not available",
+            http_code=503
+        )
 
-    demo = create_demo(args.name, args.device, args.offload)
-    demo.launch(server_port=args.port)
+    try:
+        return make_response(
+            status="ok",
+            data={"system_info": generator.get_system_info()}
+        )
+    except Exception as e:
+        print(f"System info check failed: {e}")
+        return make_response(
+            status="error",
+            error=str(e),
+            http_code=500
+        )
+
+@app.route('/', methods=['GET'])
+def index():
+    """Simple landing page with API documentation"""
+    api_docs = {
+        "name": "UNO Flux Image Generation API",
+        "endpoints": {
+            "/generate": {
+                "method": "POST",
+                "content_type": "application/json",
+                "description": "Generate image from text prompt",
+                "parameters": {
+                    "prompt": "Text prompt for image generation",
+                    "height": "(optional) Image height (default: 512)",
+                    "width": "(optional) Image width (default: 512)",
+                    "model": "(optional) Model to use (default: 'flux-dev')"
+                }
+            },
+            "/health": {
+                "method": "GET",
+                "description": "Health check endpoint"
+            },
+            "/system-info": {
+                "method": "GET",
+                "description": "System configuration and GPU status"
+            }
+        }
+    }
+    return make_response(status="ok", data=api_docs)
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8484, debug=False, threaded=True)
