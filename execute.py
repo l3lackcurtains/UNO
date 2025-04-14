@@ -9,8 +9,8 @@ import os
 # Set default model paths - using correct model identifiers
 os.environ["FLUX_DEV"] = "./models/flux1-dev.safetensors"
 os.environ["AE"] = "./models/ae.safetensors"
-os.environ["T5"] = "xlabs-ai/xflux_text_encoders"  # Use HF repo ID
-os.environ["CLIP"] = "openai/clip-vit-large-patch14"  # Use HF repo ID
+os.environ["T5"] = "./models/xflux_text_encoders"  # Local path
+os.environ["CLIP"] = "./models/clip-vit-large-patch14"  # Local path
 os.environ["LORA"] = "./models/dit_lora.safetensors"
 
 def format_time(seconds):
@@ -36,6 +36,11 @@ def generate(
 ):
     total_start = time.time()
     
+    # Reset memory stats before initialization
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()
+        initial_memory = torch.cuda.memory_allocated()
+    
     print("Initializing pipeline...")
     pipeline = UNOPipeline(
         model_type="flux-dev",
@@ -47,6 +52,14 @@ def generate(
     
     if torch.cuda.is_available():
         init_memory = torch.cuda.memory_allocated()
+        init_peak_memory = torch.cuda.max_memory_allocated()
+        print(f"\nInitialization Memory:")
+        print(f"Base Memory: {format_memory(initial_memory)}")
+        print(f"Current Memory: {format_memory(init_memory)}")
+        print(f"Peak Memory: {format_memory(init_peak_memory)}")
+        
+        # Reset stats for generation phase
+        torch.cuda.reset_peak_memory_stats()
     
     ref_imgs = []
     if ref_image_paths:
@@ -69,7 +82,11 @@ def generate(
     generation_time = time.time() - generation_start
     
     if torch.cuda.is_available():
-        peak_memory = torch.cuda.max_memory_allocated()
+        gen_current_memory = torch.cuda.memory_allocated()
+        gen_peak_memory = torch.cuda.max_memory_allocated()
+        print(f"\nGeneration Memory:")
+        print(f"Current Memory: {format_memory(gen_current_memory)}")
+        print(f"Peak Memory: {format_memory(gen_peak_memory)}")
     
     results_dir = Path("results")
     results_dir.mkdir(exist_ok=True)
@@ -84,11 +101,6 @@ def generate(
     print(f"Generation: {format_time(generation_time)}")
     print(f"Total time: {format_time(total_time)}")
     
-    if torch.cuda.is_available():
-        print(f"\nMemory:")
-        print(f"After initialization: {format_memory(init_memory)}")
-        print(f"Peak: {format_memory(peak_memory)}")
-    
     return str(output_path)
 
 if __name__ == "__main__":
@@ -98,7 +110,7 @@ if __name__ == "__main__":
         width=512,
         height=512,
         guidance=4.0,
-        num_steps=25,
+        num_steps=16,
         seed=-1
     )
     print(f"\nImage saved to: {output_path}")
