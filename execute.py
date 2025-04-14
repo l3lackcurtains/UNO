@@ -4,6 +4,14 @@ from uno.flux.pipeline import UNOPipeline
 import time
 from datetime import datetime
 from pathlib import Path
+import os
+
+# Set default model paths - using correct model identifiers
+os.environ["FLUX_DEV"] = "./models/flux1-dev.safetensors"
+os.environ["AE"] = "./models/ae.safetensors"
+os.environ["T5"] = "xlabs-ai/xflux_text_encoders"  # Use HF repo ID
+os.environ["CLIP"] = "openai/clip-vit-large-patch14"  # Use HF repo ID
+os.environ["LORA"] = "./models/dit_lora.safetensors"
 
 def format_time(seconds):
     if seconds < 60:
@@ -28,7 +36,6 @@ def generate(
 ):
     total_start = time.time()
     
-    # Initialize pipeline
     print("Initializing pipeline...")
     pipeline = UNOPipeline(
         model_type="flux-dev",
@@ -38,20 +45,16 @@ def generate(
     )
     init_time = time.time() - total_start
     
-    # Memory after initialization
     if torch.cuda.is_available():
         init_memory = torch.cuda.memory_allocated()
     
-    # Load reference images if provided
     ref_imgs = []
     if ref_image_paths:
         ref_imgs = [Image.open(path) for path in ref_image_paths if path is not None]
     
-    # Use random seed if not specified
     if seed == -1:
         seed = torch.randint(0, 2**32 - 1, (1,)).item()
     
-    # Generate image
     generation_start = time.time()
     output_image = pipeline(
         prompt=prompt,
@@ -65,11 +68,9 @@ def generate(
     )
     generation_time = time.time() - generation_start
     
-    # Peak memory during generation
     if torch.cuda.is_available():
         peak_memory = torch.cuda.max_memory_allocated()
     
-    # Save the generated image
     results_dir = Path("results")
     results_dir.mkdir(exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -91,11 +92,13 @@ def generate(
     return str(output_path)
 
 if __name__ == "__main__":
-    generate(
+    # Simple usage example
+    output_path = generate(
         prompt="handsome woman in the city",
         width=512,
         height=512,
         guidance=4.0,
-        num_steps=12,
+        num_steps=25,
         seed=-1
     )
+    print(f"\nImage saved to: {output_path}")
