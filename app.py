@@ -5,6 +5,7 @@ from generator import ImageGenerator
 import threading
 from queue import Queue
 import concurrent.futures
+import torch
 
 app = Flask(__name__)
 request_queue = Queue()
@@ -34,6 +35,18 @@ def generate_image_task(prompt, height, width, model):
     with thread_lock:
         return generator.generate(prompt, height, width, model)
 
+def format_memory(bytes):
+    return f"{bytes/1024**3:.2f} GB"
+
+def get_gpu_memory():
+    if torch.cuda.is_available():
+        return {
+            "allocated": format_memory(torch.cuda.memory_allocated()),
+            "reserved": format_memory(torch.cuda.memory_reserved()),
+            "max_allocated": format_memory(torch.cuda.max_memory_allocated())
+        }
+    return None
+
 @app.route('/generate', methods=['POST'])
 def generate_image_endpoint():
     if generator is None:
@@ -45,7 +58,12 @@ def generate_image_endpoint():
 
     try:
         start_time = time.time()
-        print("Processing generate_image request")
+        print("\nProcessing generate_image request")
+        
+        # Reset CUDA memory stats
+        if torch.cuda.is_available():
+            torch.cuda.reset_peak_memory_stats()
+            print("Initial GPU Memory:", get_gpu_memory())
         
         data = request.get_json()
         prompt = data.get('prompt')
@@ -68,6 +86,9 @@ def generate_image_endpoint():
         
         generation_time = time.time() - generation_start
         
+        if torch.cuda.is_available():
+            print("GPU Memory after generation:", get_gpu_memory())
+        
         img_io = BytesIO()
         image.save(img_io, 'PNG')
         img_io.seek(0)
@@ -77,6 +98,14 @@ def generate_image_endpoint():
         
         response = send_file(img_io, mimetype='image/png')
         response.headers['X-Generation-Time'] = f"{generation_time:.2f}"
+        
+        # Include memory stats in response headers
+        if torch.cuda.is_available():
+            memory_stats = get_gpu_memory()
+            response.headers['X-GPU-Memory-Allocated'] = memory_stats['allocated']
+            response.headers['X-GPU-Memory-Reserved'] = memory_stats['reserved']
+            response.headers['X-GPU-Memory-Peak'] = memory_stats['max_allocated']
+        
         return response
         
     except Exception as e:
