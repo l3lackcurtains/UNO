@@ -8,13 +8,6 @@ from uno.flux.pipeline import UNOPipeline
 
 class ImageGenerator:
     def __init__(self):
-        # Set default model paths
-        os.environ["FLUX_DEV"] = "./models/flux1-dev.safetensors"
-        os.environ["AE"] = "./models/ae.safetensors"
-        os.environ["T5"] = "./models/xflux_text_encoders"
-        os.environ["CLIP"] = "./models/clip-vit-large-patch14"
-        os.environ["LORA"] = "./models/dit_lora.safetensors"
-
         if not torch.cuda.is_available():
             raise RuntimeError("CUDA GPU is required but not available")
 
@@ -27,7 +20,14 @@ class ImageGenerator:
             model_type="flux-dev",
             device=self.device,
             only_lora=True,
-            lora_rank=512
+            lora_rank=512,
+            model_paths={
+                "flux": "./models/checkpoints/flux1-dev.safetensors",
+                "ae": "./models/checkpoints/ae.safetensors",
+                "t5": "xlabs-ai/xflux_text_encoders",  # Use HF model ID instead of local path
+                "clip": "openai/clip-vit-large-patch14",  # Use HF model ID instead of local path
+                "lora": "./models/checkpoints/dit_lora.safetensors"
+            }
         )
 
     def generate(self, prompt: str, height: int = 512, width: int = 512, model_type: str = "flux-dev"):

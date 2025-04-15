@@ -7,11 +7,11 @@ from pathlib import Path
 import os
 
 # Set default model paths - using correct model identifiers
-os.environ["FLUX_DEV"] = "./models/flux1-dev.safetensors"
-os.environ["AE"] = "./models/ae.safetensors"
-os.environ["T5"] = "./models/xflux_text_encoders"  # Local path
-os.environ["CLIP"] = "./models/clip-vit-large-patch14"  # Local path
-os.environ["LORA"] = "./models/dit_lora.safetensors"
+os.environ["FLUX_DEV"] = "./models/checkpoints/flux1-dev.safetensors"
+os.environ["AE"] = "./models/checkpoints/ae.safetensors"
+os.environ["T5"] = "./models/text_encoders/xflux_text_encoders"  # Local path
+os.environ["CLIP"] = "./models/text_encoders/clip-vit-large-patch14"  # Local path
+os.environ["LORA"] = "./models/checkpoints/dit_lora.safetensors"
 
 def format_time(seconds):
     if seconds < 60:

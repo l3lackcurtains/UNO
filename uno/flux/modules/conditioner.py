@@ -25,37 +25,40 @@ class HFEmbedder(nn.Module):
         self.max_length = max_length
         self.output_key = "pooler_output" if self.is_clip else "last_hidden_state"
 
-        # Use local cache dir if models are downloaded
-        cache_dir = os.path.join(os.path.dirname(os.environ.get("CLIP", "")), "clip-vit-large-patch14") if self.is_clip else \
-                   os.path.join(os.path.dirname(os.environ.get("T5", "")), "xflux_text_encoders")
-        
-        if os.path.exists(cache_dir):
-            hf_kwargs["local_files_only"] = True
-            hf_kwargs["cache_dir"] = os.path.dirname(cache_dir)
+        # Default model IDs
+        CLIP_MODEL_ID = "openai/clip-vit-large-patch14"
+        T5_MODEL_ID = "xlabs-ai/xflux_text_encoders"
 
+        # Always use the default model IDs for loading
         if self.is_clip:
-            self.tokenizer: CLIPTokenizer = CLIPTokenizer.from_pretrained(version, max_length=max_length, **hf_kwargs)
-            self.hf_module: CLIPTextModel = CLIPTextModel.from_pretrained(version, **hf_kwargs)
+            self.tokenizer = CLIPTokenizer.from_pretrained(CLIP_MODEL_ID, max_length=max_length, **hf_kwargs)
+            self.transformer = CLIPTextModel.from_pretrained(CLIP_MODEL_ID, **hf_kwargs)
         else:
-            self.tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(version, max_length=max_length, **hf_kwargs)
-            self.hf_module: T5EncoderModel = T5EncoderModel.from_pretrained(version, **hf_kwargs)
+            self.tokenizer = T5Tokenizer.from_pretrained(T5_MODEL_ID, max_length=max_length, **hf_kwargs)
+            self.transformer = T5EncoderModel.from_pretrained(T5_MODEL_ID, **hf_kwargs)
 
-        self.hf_module = self.hf_module.eval().requires_grad_(False)
+        # If a local path is provided, load the weights from it
+        if os.path.exists(version):
+            if os.path.isdir(version):
+                weights_path = os.path.join(version, "pytorch_model.bin")
+            else:
+                weights_path = version
+            
+            if os.path.exists(weights_path):
+                state_dict = torch.load(weights_path, map_location="cpu")
+                self.transformer.load_state_dict(state_dict)
+            else:
+                print(f"Warning: Could not find weights file at {weights_path}")
+
+        self.transformer = self.transformer.eval().requires_grad_(False)
 
     def forward(self, text: list[str]) -> Tensor:
-        batch_encoding = self.tokenizer(
+        tokens = self.tokenizer(
             text,
-            truncation=True,
             max_length=self.max_length,
-            return_length=False,
-            return_overflowing_tokens=False,
             padding="max_length",
+            truncation=True,
             return_tensors="pt",
         )
-
-        outputs = self.hf_module(
-            input_ids=batch_encoding["input_ids"].to(self.hf_module.device),
-            attention_mask=None,
-            output_hidden_states=False,
-        )
-        return outputs[self.output_key]
+        tokens = {k: v.to(self.transformer.device) for k, v in tokens.items()}
+        return self.transformer(**tokens)[self.output_key]

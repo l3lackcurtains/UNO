@@ -104,25 +104,38 @@ class UNOPipeline:
         device: torch.device,
         offload: bool = False,
         only_lora: bool = False,
-        lora_rank: int = 16
+        lora_rank: int = 16,
+        model_paths: dict = None
     ):
         self.device = device
         self.offload = offload
         self.model_type = model_type
+        self.model_paths = model_paths or {}
 
-        self.clip = load_clip(self.device)
-        self.t5 = load_t5(self.device, max_length=512)
-        self.ae = load_ae(model_type, device="cpu" if offload else self.device)
+        self.clip = load_clip(self.device, model_path=self.model_paths.get("clip"))
+        self.t5 = load_t5(self.device, max_length=512, model_path=self.model_paths.get("t5"))
+        self.ae = load_ae(
+            model_type, 
+            device="cpu" if offload else self.device,
+            model_path=self.model_paths.get("ae")
+        )
+        
         self.use_fp8 = "fp8" in model_type
         if only_lora:
             self.model = load_flow_model_only_lora(
                 model_type,
                 device="cpu" if offload else self.device,
                 lora_rank=lora_rank,
-                use_fp8=self.use_fp8
+                use_fp8=self.use_fp8,
+                model_path=self.model_paths.get("flux"),
+                lora_path=self.model_paths.get("lora")
             )
         else:
-            self.model = load_flow_model(model_type, device="cpu" if offload else self.device)
+            self.model = load_flow_model(
+                model_type, 
+                device="cpu" if offload else self.device,
+                model_path=self.model_paths.get("flux")
+            )
 
 
     def load_ckpt(self, ckpt_path):
