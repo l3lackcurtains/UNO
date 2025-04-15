@@ -153,4 +153,4 @@ def index():
     return make_response(status="ok", data=api_docs)
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8484, debug=False, threaded=True)
+    app.run(host='0.0.0.0', port=8686, debug=False, threaded=True)

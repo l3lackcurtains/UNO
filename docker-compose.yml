@@ -1,0 +1,14 @@
+services:
+  uno-image-generator:
+    container_name: uno-image-generator
+    build: .
+    ports:
+      - "8686:8686"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
