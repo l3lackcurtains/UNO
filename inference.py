@@ -56,7 +56,7 @@ class InferenceArgs:
     seed: int = 3407
     save_path: str = "output/inference"
     only_lora: bool = True
-    concat_refs: bool = False
+    concat_refs: bool = True  # Enable reference concatenation
     lora_rank: int = 512
     data_resolution: int = 512
     pe: Literal['d', 'h', 'w', 'o'] = 'd'

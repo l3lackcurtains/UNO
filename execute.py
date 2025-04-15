@@ -44,9 +44,10 @@ def generate(
     print("Initializing pipeline...")
     pipeline = UNOPipeline(
         model_type="flux-dev",
-        device="cuda" if torch.cuda.is_available() else "cpu",
+        device="cuda",
         only_lora=True,
-        lora_rank=512
+        lora_rank=512,
+        offload=True  # Enable CPU offloading
     )
     init_time = time.time() - total_start
     

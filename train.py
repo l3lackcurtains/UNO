@@ -222,8 +222,8 @@ def main(
     ## accelerator
     deepspeed_plugins = {
         "dit": DeepSpeedPlugin(hf_ds_config='config/deepspeed/zero2_config.json'),
-        "t5": DeepSpeedPlugin(hf_ds_config='config/deepspeed/zero3_config.json'),
-        "clip": DeepSpeedPlugin(hf_ds_config='config/deepspeed/zero3_config.json')
+        "t5": DeepSpeedPlugin(hf_ds_config='config/deepspeed/zero2_config.json'),
+        "clip": DeepSpeedPlugin(hf_ds_config='config/deepspeed/zero2_config.json')
     }
     accelerator = Accelerator(
         project_dir=args.project_dir,
@@ -272,7 +272,7 @@ def main(
     dit.requires_grad_(False)
     dit = set_lora(dit, args.lora_rank, args.double_blocks_indices, args.single_blocks_indices, accelerator.device)
     dit.train()
-    dit.gradient_checkpointing = args.gradient_checkpoint
+    dit.gradient_checkpointing = True
 
     ## optimizer and lr scheduler
     optimizer = torch.optim.AdamW(
